@@ -17,14 +17,13 @@
 package org.apache.dubbo.monitor.simple;
 
 import com.alibaba.dubbo.common.Constants;
-import org.apache.dubbo.monitor.simple.common.CountUtils;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.logger.Logger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.ConfigUtils;
 import org.apache.dubbo.common.utils.NamedThreadFactory;
 import org.apache.dubbo.monitor.MonitorService;
-
+import org.apache.dubbo.monitor.simple.common.CountUtils;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.axis.DateAxis;
@@ -37,12 +36,7 @@ import org.springframework.beans.BeanUtils;
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.text.DecimalFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -50,19 +44,12 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-
-import static com.alibaba.dubbo.monitor.MonitorService.PROVIDER;
+import java.util.concurrent.*;
 
 /**
  * SimpleMonitorService
  */
-public class SimpleMonitorService implements MonitorService,com.alibaba.dubbo.monitor.MonitorService {
+public class SimpleMonitorService implements MonitorService, com.alibaba.dubbo.monitor.MonitorService {
 
     private static final Logger logger = LoggerFactory.getLogger(SimpleMonitorService.class);
 
@@ -259,70 +246,87 @@ public class SimpleMonitorService implements MonitorService,com.alibaba.dubbo.mo
     }
 
     private void draw() {
+        String temp="";
         File rootDir = new File(statisticsDirectory);
         if (!rootDir.exists()) {
             return;
         }
         File[] dateDirs = rootDir.listFiles();
         for (File dateDir : dateDirs) {
-            File[] serviceDirs = dateDir.listFiles();
-            for (File serviceDir : serviceDirs) {
-                File[] methodDirs = serviceDir.listFiles();
-                for (File methodDir : methodDirs) {
-                    String methodUri = chartsDirectory + "/" + dateDir.getName() + "/" + serviceDir.getName() + "/" + methodDir.getName();
+            if (dateDir.isFile()) {
+                continue;
+            }
+            try {
+                System.err.println("start handle" + dateDir);
+                File[] serviceDirs = dateDir.listFiles();
+                for (File serviceDir : serviceDirs) {
+                    File[] methodDirs = serviceDir.listFiles();
+                    if(methodDirs==null||methodDirs.length==0){
+                        System.err.println("err handle" + serviceDir);
+                        continue;
+                    }
+                    for (File methodDir : methodDirs) {
+                        String methodUri = chartsDirectory + "/" + dateDir.getName() + "/" + serviceDir.getName() + "/" + methodDir.getName();
 
-                    File successFile = new File(methodUri + "/" + org.apache.dubbo.monitor.MonitorService.SUCCESS + ".png");
-                    long successModified = successFile.lastModified();
-                    boolean successChanged = false;
-                    Map<String, long[]> successData = new HashMap<String, long[]>();
-                    double[] successSummary = new double[4];
+                        File successFile = new File(methodUri + "/" + org.apache.dubbo.monitor.MonitorService.SUCCESS + ".png");
+                        long successModified = successFile.lastModified();
+                        boolean successChanged = false;
+                        Map<String, long[]> successData = new HashMap<String, long[]>();
+                        double[] successSummary = new double[4];
 
-                    File elapsedFile = new File(methodUri + "/" + org.apache.dubbo.monitor.MonitorService.ELAPSED + ".png");
-                    long elapsedModified = elapsedFile.lastModified();
-                    boolean elapsedChanged = false;
-                    Map<String, long[]> elapsedData = new HashMap<String, long[]>();
-                    double[] elapsedSummary = new double[4];
-                    long elapsedMax = 0;
+                        File elapsedFile = new File(methodUri + "/" + org.apache.dubbo.monitor.MonitorService.ELAPSED + ".png");
+                        long elapsedModified = elapsedFile.lastModified();
+                        boolean elapsedChanged = false;
+                        Map<String, long[]> elapsedData = new HashMap<String, long[]>();
+                        double[] elapsedSummary = new double[4];
+                        long elapsedMax = 0;
 
-                    File[] consumerDirs = methodDir.listFiles();
-                    for (File consumerDir : consumerDirs) {
-                        File[] providerDirs = consumerDir.listFiles();
-                        for (File providerDir : providerDirs) {
-                            File consumerSuccessFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.SUCCESS);
-                            File providerSuccessFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.SUCCESS);
-                            appendData(new File[]{consumerSuccessFile, providerSuccessFile}, successData, successSummary);
-                            if (consumerSuccessFile.lastModified() > successModified
-                                    || providerSuccessFile.lastModified() > successModified) {
-                                successChanged = true;
-                            }
+                        File[] consumerDirs = methodDir.listFiles();
+                        if(consumerDirs==null||consumerDirs.length==0){
+                            System.err.println("err handle" + methodDir);
+                            continue;
+                        }
+                        for (File consumerDir : consumerDirs) {
+                            File[] providerDirs = consumerDir.listFiles();
+                            for (File providerDir : providerDirs) {
+                                File consumerSuccessFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.SUCCESS);
+                                File providerSuccessFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.SUCCESS);
+                                appendData(new File[]{consumerSuccessFile, providerSuccessFile}, successData, successSummary);
+                                if (consumerSuccessFile.lastModified() > successModified
+                                        || providerSuccessFile.lastModified() > successModified) {
+                                    successChanged = true;
+                                }
 
-                            File consumerElapsedFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.ELAPSED);
-                            File providerElapsedFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.ELAPSED);
-                            appendData(new File[]{consumerElapsedFile, providerElapsedFile}, elapsedData, elapsedSummary);
-                            elapsedMax = Math.max(elapsedMax, CountUtils.max(new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.MAX_ELAPSED)));
-                            elapsedMax = Math.max(elapsedMax, CountUtils.max(new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.MAX_ELAPSED)));
-                            if (consumerElapsedFile.lastModified() > elapsedModified
-                                    || providerElapsedFile.lastModified() > elapsedModified) {
-                                elapsedChanged = true;
+                                File consumerElapsedFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.ELAPSED);
+                                File providerElapsedFile = new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.ELAPSED);
+                                appendData(new File[]{consumerElapsedFile, providerElapsedFile}, elapsedData, elapsedSummary);
+                                elapsedMax = Math.max(elapsedMax, CountUtils.max(new File(providerDir, org.apache.dubbo.monitor.MonitorService.CONSUMER + "." + org.apache.dubbo.monitor.MonitorService.MAX_ELAPSED)));
+                                elapsedMax = Math.max(elapsedMax, CountUtils.max(new File(providerDir, org.apache.dubbo.monitor.MonitorService.PROVIDER + "." + org.apache.dubbo.monitor.MonitorService.MAX_ELAPSED)));
+                                if (consumerElapsedFile.lastModified() > elapsedModified
+                                        || providerElapsedFile.lastModified() > elapsedModified) {
+                                    elapsedChanged = true;
+                                }
                             }
                         }
-                    }
-                    if (elapsedChanged) {
-                        divData(elapsedData, successData);
-                        elapsedSummary[0] = elapsedMax;
-                        elapsedSummary[1] = -1;
-                        elapsedSummary[2] = successSummary[3] == 0 ? 0 : elapsedSummary[3] / successSummary[3];
-                        elapsedSummary[3] = -1;
-                        createChart("ms/t", serviceDir.getName(), methodDir.getName(), dateDir.getName(), new String[]{org.apache.dubbo.monitor.MonitorService.CONSUMER, org.apache.dubbo.monitor.MonitorService.PROVIDER}, elapsedData, elapsedSummary, elapsedFile.getAbsolutePath());
-                    }
-                    if (successChanged) {
-                        divData(successData, 60);
-                        successSummary[0] = successSummary[0] / 60;
-                        successSummary[1] = successSummary[1] / 60;
-                        successSummary[2] = successSummary[2] / 60;
-                        createChart("t/s", serviceDir.getName(), methodDir.getName(), dateDir.getName(), new String[]{org.apache.dubbo.monitor.MonitorService.CONSUMER, org.apache.dubbo.monitor.MonitorService.PROVIDER}, successData, successSummary, successFile.getAbsolutePath());
+                        if (elapsedChanged) {
+                            divData(elapsedData, successData);
+                            elapsedSummary[0] = elapsedMax;
+                            elapsedSummary[1] = -1;
+                            elapsedSummary[2] = successSummary[3] == 0 ? 0 : elapsedSummary[3] / successSummary[3];
+                            elapsedSummary[3] = -1;
+                            createChart("ms/t", serviceDir.getName(), methodDir.getName(), dateDir.getName(), new String[]{org.apache.dubbo.monitor.MonitorService.CONSUMER, org.apache.dubbo.monitor.MonitorService.PROVIDER}, elapsedData, elapsedSummary, elapsedFile.getAbsolutePath());
+                        }
+                        if (successChanged) {
+                            divData(successData, 60);
+                            successSummary[0] = successSummary[0] / 60;
+                            successSummary[1] = successSummary[1] / 60;
+                            successSummary[2] = successSummary[2] / 60;
+                            createChart("t/s", serviceDir.getName(), methodDir.getName(), dateDir.getName(), new String[]{org.apache.dubbo.monitor.MonitorService.CONSUMER, org.apache.dubbo.monitor.MonitorService.PROVIDER}, successData, successSummary, successFile.getAbsolutePath());
+                        }
                     }
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
     }
@@ -407,9 +411,9 @@ public class SimpleMonitorService implements MonitorService,com.alibaba.dubbo.mo
 
     @Override
     public void collect(com.alibaba.dubbo.common.URL statistics) {
-        URL obj=new URL(statistics.getProtocol(),statistics.getUsername(),statistics.getPassword(),statistics.getHost()
-        ,statistics.getPort(),statistics.getPath(),statistics.getParameters());
-        BeanUtils.copyProperties(statistics,obj);
+        URL obj = new URL(statistics.getProtocol(), statistics.getUsername(), statistics.getPassword(), statistics.getHost()
+                , statistics.getPort(), statistics.getPath(), statistics.getParameters());
+        BeanUtils.copyProperties(statistics, obj);
         queue.offer(obj);
         if (logger.isInfoEnabled()) {
             logger.info("collect statistics: " + statistics);
